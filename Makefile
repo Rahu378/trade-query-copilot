@@ -1,4 +1,4 @@
-.PHONY: seed bench dev test app site
+.PHONY: seed bench dev test app site pages
 
 seed:
 	python -m copilot.seed
@@ -17,3 +17,9 @@ app:
 
 site:
 	python -m copilot.export_site
+
+# the Pages site is served from the gh-pages branch, a copy of docs/
+pages:
+	git subtree split --prefix docs -b gh-pages-tmp
+	git push -f origin gh-pages-tmp:gh-pages
+	git branch -D gh-pages-tmp
