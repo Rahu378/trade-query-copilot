@@ -1,0 +1,20 @@
+[project]
+name = "trade-query-copilot"
+version = "0.3.0"
+description = "Text-to-SQL copilot for trade, settlement, position and break data (Snowflake Cortex Analyst + sqlglot guardrails)"
+requires-python = ">=3.11"
+dependencies = ["sqlglot>=30", "pyyaml>=6", "requests>=2.32"]
+
+[project.optional-dependencies]
+app = ["streamlit>=1.50", "pandas>=2.2"]
+snowflake = ["snowflake-connector-python[pandas]>=3.12"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.setuptools]
+packages = ["copilot"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120

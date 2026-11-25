@@ -1,0 +1,7 @@
+sqlglot>=30
+pyyaml>=6
+pandas>=2.2
+requests>=2.32
+streamlit>=1.50
+snowflake-connector-python[pandas]>=3.12
+pytest>=8
