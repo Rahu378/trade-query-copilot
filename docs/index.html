@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Trade Query Copilot</title>
+<meta name="description" content="Plain-English questions about trades, settlements, positions and breaks, turned into validated Snowflake SQL with results and an explanation. The engine runs in your browser.">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta property="og:title" content="Trade Query Copilot">
+<meta property="og:description" content="Ask the trade warehouse in plain English. Get SQL you can trust.">
+<meta property="og:image" content="assets/preview.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%230071e3'/%3E%3Cstop offset='1' stop-color='%2330b0c7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='url(%23g)'/%3E%3Cpath d='M18 24h28M18 32h20M18 40h12' stroke='white' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<a class="skip" href="#ask">Skip to the copilot</a>
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="#top" aria-label="Trade Query Copilot home"><span class="brand-mark" aria-hidden="true"></span><span>Trade Query Copilot</span></a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#ask">Ask</a>
+      <a href="#guard">Guardrails</a>
+      <a href="#model">Semantic model</a>
+      <a href="#bench">Benchmark</a>
+      <a href="https://github.com/Rahu378/trade-query-copilot" class="gh">GitHub</a>
+      <button class="theme" id="theme" type="button" aria-label="Toggle dark mode">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path class="sun" d="M12 4V2m0 20v-2m8-8h2M2 12h2m13.66-5.66 1.41-1.41M4.93 19.07l1.41-1.41m0-11.32L4.93 4.93m14.14 14.14-1.41-1.41M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path class="moon" d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+      </button>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero wrap">
+    <p class="eyebrow">Text-to-SQL for trade operations</p>
+    <h1>Ask the trade warehouse.<br><span class="grad">Get SQL you can trust.</span></h1>
+    <p class="lede">Plain-English questions about trades, settlements, positions and breaks come back as validated Snowflake SQL, the results, and how the question was read. Every statement passes five guardrails before it touches data.</p>
+    <button class="hero-box" id="heroBox" type="button" aria-label="Try a question">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span id="heroType" class="hero-type"></span><span class="caret-b" aria-hidden="true"></span>
+      <span class="hero-go">Ask</span>
+    </button>
+    <div class="stats" id="stats">
+      <div class="stat"><b data-k="acc">0</b><span>execution accuracy on a 50-question gold set</span></div>
+      <div class="stat"><b data-k="guard">0</b><span>of generated SQL passed the guardrails</span></div>
+      <div class="stat"><b data-k="checks">5</b><span>checks on every statement</span></div>
+      <div class="stat"><b data-k="ms">0</b><span>median time to plan and run</span></div>
+    </div>
+  </section>
+
+  <section class="section wrap" id="ask">
+    <div class="section-head reveal">
+      <p class="eyebrow">Live</p>
+      <h2>Ask anything about the book.</h2>
+      <p class="lede small-lede">The same Python engine as the repo runs right here in your browser via Pyodide, and the SQL executes against the same SQLite snapshot the benchmark uses. In production the SQL comes from Cortex Analyst and runs on Snowflake.</p>
+    </div>
+    <div class="copilot reveal">
+      <section class="pane chat-pane" aria-label="Conversation">
+        <div class="engine" id="engine" aria-live="polite">
+          <span class="dot"></span><span id="engineText">Starting the engine…</span>
+          <span class="bar"><i id="engineBar"></i></span>
+        </div>
+        <ol class="thread" id="thread"></ol>
+        <form class="ask" id="askForm" autocomplete="off">
+          <input id="askInput" type="text" placeholder="Which trades over $1M failed to settle this week, by counterparty?" aria-label="Your question" maxlength="300">
+          <button class="btn primary" type="submit" id="askBtn">Ask</button>
+        </form>
+      </section>
+      <aside class="pane side-pane" aria-label="Suggestions">
+        <div class="side-scroll">
+          <h3 class="h3">Try these</h3>
+          <div id="suggest"></div>
+          <h3 class="h3" style="margin-top:22px">Terms it knows</h3>
+          <p class="muted small" style="margin:0 0 10px">From the business glossary. Click one to see where it maps.</p>
+          <div class="terms" id="terms"></div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <section class="section wrap" id="guard">
+    <div class="section-head reveal">
+      <p class="eyebrow">Guardrails</p>
+      <h2>Try to break it.</h2>
+      <p class="lede small-lede">Every statement, whether Cortex wrote it or the local engine did, is parsed by sqlglot before it runs. Write your own SQL or pick an attack.</p>
+    </div>
+    <div class="playground reveal">
+      <div class="pane pg-in">
+        <div class="pg-examples" id="pgExamples"></div>
+        <textarea id="pgSql" spellcheck="false" aria-label="SQL to check">SELECT a.desk, COUNT(*) AS failed_trades
+FROM TRADE_OPS.CORE.FACT_TRADES t
+JOIN TRADE_OPS.CORE.FACT_SETTLEMENTS s ON s.trade_id = t.trade_id
+JOIN TRADE_OPS.CORE.DIM_ACCOUNT a ON a.account_id = t.account_id
+WHERE s.settlement_status = 'FAILED'
+GROUP BY a.desk</textarea>
+        <div class="pg-actions"><button class="btn primary" id="pgRun" type="button">Check and run</button><span class="muted small" id="pgNote"></span></div>
+      </div>
+      <div class="pane pg-out" id="pgOut">
+        <p class="muted">Results show up here.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section wrap" id="model">
+    <div class="section-head reveal">
+      <p class="eyebrow">Semantic model</p>
+      <h2>Business words, mapped to the right columns.</h2>
+      <p class="lede small-lede">One YAML file teaches Cortex Analyst the warehouse: tables, joins, synonyms, sample values, filters and verified queries. The glossary pins down the definitions people argue about.</p>
+    </div>
+    <div class="model reveal">
+      <div class="pane erd-pane">
+        <svg id="erd" viewBox="0 0 700 430" role="img" aria-label="Relationships between the logical tables"></svg>
+        <p class="muted small erd-note">Click a table to see its definition.</p>
+      </div>
+      <div class="pane table-pane" id="tableDetail"></div>
+    </div>
+    <div class="glossary reveal" id="glossary"></div>
+  </section>
+
+  <section class="section wrap" id="bench">
+    <div class="section-head reveal">
+      <p class="eyebrow">Benchmark</p>
+      <h2>50 questions ops actually ask.</h2>
+      <p class="lede small-lede">Written before the engine existed, with gold SQL for each. A question passes when the generated SQL returns the same rows as the gold SQL.</p>
+    </div>
+    <div class="bench reveal" id="benchOut"></div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <p>Built by Rahul Reddy Chidipudi. Snowflake, Cortex Analyst, Python, sqlglot, Streamlit.</p>
+    <p class="muted small">Synthetic data, snapshot Friday 20 Nov 2026. In-browser engine: Pyodide 0.27.7 + sqlglot 30.35 + sql.js 1.13.</p>
+    <p><a href="https://github.com/Rahu378/trade-query-copilot">Source on GitHub</a></p>
+  </div>
+</footer>
+<div class="tip" id="tip" role="tooltip" hidden></div>
+<script src="assets/app.js" defer></script>
+</body>
+</html>
