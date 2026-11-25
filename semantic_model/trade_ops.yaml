@@ -1,0 +1,485 @@
+# Cortex Analyst semantic model for the trade-ops warehouse.
+# Upload:  PUT file://semantic_model/trade_ops.yaml @TRADE_OPS.CORE.SEMANTIC_MODELS AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
+# The local engine (copilot/local_analyst.py) reads this same file, so synonyms and sample values
+# added here help both.
+
+name: trade_ops
+description: >
+  Trades, settlement status, daily traded vs settled positions and reconciliation breaks for ten
+  funds across four desks (US Equity, Global Equity, Fixed Income, Multi-Asset). Amounts in USD are in
+  the funds' base currency.
+
+custom_instructions: >
+  The data is a snapshot as of 2026-11-20 (a Friday). Treat "today" as 2026-11-20 and resolve relative
+  dates from it: weeks run Monday to Friday, "this week" is 2026-11-16 to 2026-11-20, "last week" is
+  2026-11-09 to 2026-11-13, "this month" is 2026-11-01 to 2026-11-20. Write dates as literals.
+  Trade activity (counts, notional, averages) excludes cancelled trades unless the question asks about
+  cancellations. When a question is about settling, failing or pending settlement and gives a time window,
+  filter on settlements.expected_settle_date, not trade_date. Position questions use the latest snapshot
+  (as_of_date = '2026-11-20') unless a date is given. "Open" breaks means break_status OPEN or INVESTIGATING.
+  Identify securities by ticker, accounts by account_name and counterparties by counterparty_name.
+
+tables:
+  - name: trades
+    synonyms: [trade, executions, deals, bookings, tickets]
+    description: One row per trade booked by the funds. trade_status is BOOKED or CANCELLED.
+    base_table: {database: TRADE_OPS, schema: CORE, table: FACT_TRADES}
+    primary_key: {columns: [trade_id]}
+    dimensions:
+      - name: trade_id
+        synonyms: [trade reference, trade ref, ticket]
+        description: Unique trade identifier.
+        expr: trade_id
+        data_type: varchar
+        unique: true
+      - name: account_id
+        expr: account_id
+        data_type: varchar
+      - name: security_id
+        expr: security_id
+        data_type: number
+      - name: counterparty_id
+        expr: counterparty_id
+        data_type: varchar
+      - name: side
+        synonyms: [direction, buy or sell]
+        description: BUY or SELL.
+        expr: side
+        data_type: varchar
+        sample_values: [BUY, SELL]
+        is_enum: true
+      - name: trade_ccy
+        synonyms: [trade currency, currency, ccy]
+        description: Currency the trade was executed in.
+        expr: trade_ccy
+        data_type: varchar
+        sample_values: [USD, EUR, GBP, JPY]
+        is_enum: true
+      - name: trader
+        synonyms: [booked by, dealer, PM]
+        expr: trader
+        data_type: varchar
+      - name: trade_status
+        synonyms: [booking status]
+        description: BOOKED or CANCELLED.
+        expr: trade_status
+        data_type: varchar
+        sample_values: [BOOKED, CANCELLED]
+        is_enum: true
+    time_dimensions:
+      - name: trade_date
+        synonyms: [traded on, execution date, booked on]
+        expr: trade_date
+        data_type: date
+      - name: settle_date
+        synonyms: [contractual settlement date, value date]
+        expr: settle_date
+        data_type: date
+    facts:
+      - name: quantity
+        synonyms: [shares, units, face amount, nominal]
+        expr: quantity
+        data_type: number
+      - name: price
+        synonyms: [execution price, trade price]
+        expr: price
+        data_type: number
+      - name: notional_local
+        synonyms: [local notional]
+        expr: notional_local
+        data_type: number
+      - name: notional_usd
+        synonyms: [notional, trade value, trade size, size, amount, volume, value traded, USD notional]
+        description: Trade notional converted to USD (fund base currency) at the trade-date rate.
+        expr: notional_usd
+        data_type: number
+    metrics:
+      - name: total_notional_usd
+        synonyms: [total notional, notional traded, volume traded]
+        expr: SUM(notional_usd)
+      - name: trade_count
+        synonyms: [number of trades, trade count]
+        expr: COUNT(trade_id)
+    filters:
+      - name: active_trades
+        synonyms: [not cancelled, live trades]
+        description: Excludes cancelled trades. Applied to trade activity questions by default.
+        expr: trade_status <> 'CANCELLED'
+      - name: large_trades
+        synonyms: [large trades, big tickets, over a million]
+        description: USD notional above 1,000,000.
+        expr: notional_usd > 1000000
+
+  - name: settlements
+    synonyms: [settlement, settlement status, fails, settlement fails]
+    description: Settlement outcome for each non-cancelled trade, as of the snapshot date.
+    base_table: {database: TRADE_OPS, schema: CORE, table: FACT_SETTLEMENTS}
+    primary_key: {columns: [trade_id]}
+    dimensions:
+      - name: trade_id
+        expr: trade_id
+        data_type: varchar
+        unique: true
+      - name: settlement_status
+        synonyms: [status, settlement state]
+        description: >
+          SETTLED, PENDING (not yet due) or FAILED (past expected settlement date and still not settled).
+        expr: settlement_status
+        data_type: varchar
+        sample_values: [SETTLED, PENDING, FAILED]
+        is_enum: true
+      - name: fail_reason
+        synonyms: [reason, fail code, why it failed]
+        expr: fail_reason
+        data_type: varchar
+        sample_values: [Counterparty short of securities, SSI mismatch, Counterparty insufficient cash,
+                        Late matching instruction, Place of settlement mismatch, Unmatched trade details]
+        is_enum: true
+    time_dimensions:
+      - name: expected_settle_date
+        synonyms: [due date, settlement date, expected settlement]
+        expr: expected_settle_date
+        data_type: date
+      - name: actual_settle_date
+        synonyms: [settled on, actual settlement]
+        expr: actual_settle_date
+        data_type: date
+    facts:
+      - name: days_failing
+        synonyms: [fail age, days outstanding, days failed]
+        description: Business days since the expected settlement date, for trades still failing.
+        expr: days_failing
+        data_type: number
+    filters:
+      - name: failed
+        synonyms: [failed, fails, failing, failed to settle, did not settle]
+        expr: settlement_status = 'FAILED'
+      - name: pending
+        synonyms: [pending, awaiting settlement, not yet settled, unsettled trades]
+        expr: settlement_status = 'PENDING'
+      - name: settled_on_time
+        synonyms: [settled on time]
+        expr: settlement_status = 'SETTLED' AND actual_settle_date = expected_settle_date
+
+  - name: positions
+    synonyms: [position, holdings, holding, inventory, book]
+    description: >
+      Daily position snapshot per account and security for the last five business days. traded_quantity is
+      on a trade-date basis, settled_quantity on a settlement-date basis.
+    base_table: {database: TRADE_OPS, schema: CORE, table: FACT_POSITIONS}
+    dimensions:
+      - name: account_id
+        expr: account_id
+        data_type: varchar
+      - name: security_id
+        expr: security_id
+        data_type: number
+      - name: currency
+        synonyms: [denomination, position currency, denominated]
+        expr: currency
+        data_type: varchar
+        sample_values: [USD, EUR, GBP, JPY]
+        is_enum: true
+    time_dimensions:
+      - name: as_of_date
+        synonyms: [snapshot date, position date, as of]
+        expr: as_of_date
+        data_type: date
+    facts:
+      - name: traded_quantity
+        synonyms: [traded position, trade-date position, book quantity]
+        expr: traded_quantity
+        data_type: number
+      - name: settled_quantity
+        synonyms: [settled position, custody position, settlement-date position]
+        expr: settled_quantity
+        data_type: number
+      - name: market_value_local
+        synonyms: [local market value]
+        expr: market_value_local
+        data_type: number
+      - name: market_value_usd
+        synonyms: [market value, base-currency market value, base market value, MV, USD market value, exposure]
+        description: Traded quantity valued at the close, in USD (fund base currency).
+        expr: market_value_usd
+        data_type: number
+      - name: settled_market_value_usd
+        synonyms: [settled market value, settled MV]
+        expr: settled_market_value_usd
+        data_type: number
+    metrics:
+      - name: unsettled_quantity
+        synonyms: [unsettled quantity, unsettled position, pending quantity]
+        description: Traded minus settled quantity.
+        expr: SUM(traded_quantity - settled_quantity)
+    filters:
+      - name: latest_snapshot
+        description: Applied to position questions unless a date is given.
+        expr: as_of_date = '2026-11-20'
+
+  - name: breaks
+    synonyms: [break, recon breaks, reconciliation breaks, exceptions, differences]
+    description: IBOR vs custodian reconciliation breaks.
+    base_table: {database: TRADE_OPS, schema: CORE, table: FACT_BREAKS}
+    primary_key: {columns: [break_id]}
+    dimensions:
+      - name: break_id
+        expr: break_id
+        data_type: varchar
+        unique: true
+      - name: account_id
+        expr: account_id
+        data_type: varchar
+      - name: security_id
+        expr: security_id
+        data_type: number
+      - name: break_type
+        synonyms: [type of break, category]
+        expr: break_type
+        data_type: varchar
+        sample_values: [POSITION, CASH, PRICE]
+        is_enum: true
+      - name: break_status
+        synonyms: [status]
+        description: OPEN and INVESTIGATING both count as open. RESOLVED is closed.
+        expr: break_status
+        data_type: varchar
+        sample_values: [OPEN, INVESTIGATING, RESOLVED]
+        is_enum: true
+      - name: owner_team
+        synonyms: [owner, team, assigned to]
+        expr: owner_team
+        data_type: varchar
+        sample_values: [Reconciliations, Corporate Actions, Pricing & Valuations, Market Data - FX, Settlements,
+                        Trade Support]
+        is_enum: true
+      - name: root_cause
+        synonyms: [cause, reason]
+        expr: root_cause
+        data_type: varchar
+        sample_values: [TIMING, MISSED_CA, STALE_PRICE, FX, FAILED_SETTLEMENT, BOOKING_ERROR]
+        is_enum: true
+    time_dimensions:
+      - name: opened_date
+        synonyms: [raised on, opened on, created]
+        expr: opened_date
+        data_type: date
+      - name: resolved_date
+        synonyms: [closed on, resolved on, cleared on]
+        expr: resolved_date
+        data_type: date
+    facts:
+      - name: amount_usd
+        synonyms: [break amount, amount, value, exposure, size]
+        expr: amount_usd
+        data_type: number
+      - name: age_days
+        synonyms: [age, days open, days outstanding]
+        description: Business days the break has been open (or was open, if resolved).
+        expr: age_days
+        data_type: number
+    filters:
+      - name: open_breaks
+        synonyms: [open, outstanding, unresolved, live]
+        expr: break_status IN ('OPEN', 'INVESTIGATING')
+      - name: resolved_breaks
+        synonyms: [resolved, closed, cleared]
+        expr: break_status = 'RESOLVED'
+      - name: aged_breaks
+        synonyms: [aged, stale, old]
+        description: Open breaks older than five business days.
+        expr: break_status IN ('OPEN', 'INVESTIGATING') AND age_days > 5
+
+  - name: accounts
+    synonyms: [account, fund, funds, portfolio, portfolios]
+    base_table: {database: TRADE_OPS, schema: CORE, table: DIM_ACCOUNT}
+    primary_key: {columns: [account_id]}
+    dimensions:
+      - name: account_id
+        expr: account_id
+        data_type: varchar
+        unique: true
+      - name: account_name
+        synonyms: [fund name, portfolio name, account]
+        expr: account_name
+        data_type: varchar
+        sample_values: [US Large Cap Core, US Small Cap Growth, Global Equity Fund, International Value,
+                        European Opportunities, Core Bond Fund, Short Duration Credit, Global Government Bond,
+                        Balanced Allocation, Target Date 2040]
+        is_enum: true
+      - name: desk
+        synonyms: [trading desk, business, strategy desk]
+        expr: desk
+        data_type: varchar
+        sample_values: [US Equity, Global Equity, Fixed Income, Multi-Asset]
+        is_enum: true
+
+  - name: counterparties
+    synonyms: [counterparty, broker, brokers, dealer, street, cpty]
+    base_table: {database: TRADE_OPS, schema: CORE, table: DIM_COUNTERPARTY}
+    primary_key: {columns: [counterparty_id]}
+    dimensions:
+      - name: counterparty_id
+        expr: counterparty_id
+        data_type: varchar
+        unique: true
+      - name: counterparty_name
+        synonyms: [counterparty, broker, cpty]
+        expr: counterparty_name
+        data_type: varchar
+        sample_values: [Halden Securities, Northgate Capital Markets, Brightwater Brokerage, Kestrel Prime,
+                        Oakmont & Lowe, Sable Street Partners, Marlow Agency Execution, Rhein Kapital AG,
+                        Lumiere Valeurs, Kaido Securities, Alpenrand Bank, Granite Point Markets, Thistle & Crane,
+                        Pacific Ridge Securities]
+        is_enum: true
+      - name: lei
+        synonyms: [legal entity identifier]
+        expr: lei
+        data_type: varchar
+      - name: country
+        synonyms: [domicile, country of the counterparty]
+        expr: country
+        data_type: varchar
+        sample_values: [US, GB, DE, FR, JP, CH]
+        is_enum: true
+      - name: tier
+        synonyms: [counterparty tier, credit tier]
+        description: 1 is the strongest.
+        expr: tier
+        data_type: number
+        sample_values: [1, 2, 3]
+        is_enum: true
+
+  - name: securities
+    synonyms: [security, instrument, instruments, stock, name, line]
+    base_table: {database: TRADE_OPS, schema: CORE, table: DIM_SECURITY}
+    primary_key: {columns: [security_id]}
+    dimensions:
+      - name: security_id
+        expr: security_id
+        data_type: number
+        unique: true
+      - name: ticker
+        synonyms: [symbol, security, stock, holding]
+        expr: ticker
+        data_type: varchar
+        sample_values: [AAPL, MSFT, NVDA, AMZN, GOOGL, META, JPM, SAP, ASML, SPY, QQQ]
+      - name: isin
+        expr: isin
+        data_type: varchar
+      - name: cusip
+        expr: cusip
+        data_type: varchar
+      - name: security_name
+        synonyms: [instrument name, description]
+        expr: security_name
+        data_type: varchar
+      - name: asset_class
+        synonyms: [asset type, instrument type]
+        expr: asset_class
+        data_type: varchar
+        sample_values: [EQUITY, ETF, GOVT_BOND, CORP_BOND]
+        is_enum: true
+      - name: sector
+        synonyms: [industry]
+        expr: sector
+        data_type: varchar
+        sample_values: [Technology, Financials, Health Care, Energy, Consumer Staples, Consumer Discretionary,
+                        Communication Services, Industrials, Index, Fixed Income, Government, Corporate]
+        is_enum: true
+
+relationships:
+  - name: trades_to_settlements
+    left_table: trades
+    right_table: settlements
+    relationship_columns: [{left_column: trade_id, right_column: trade_id}]
+    join_type: left_outer
+    relationship_type: one_to_one
+  - name: trades_to_accounts
+    left_table: trades
+    right_table: accounts
+    relationship_columns: [{left_column: account_id, right_column: account_id}]
+    join_type: inner
+    relationship_type: many_to_one
+  - name: trades_to_counterparties
+    left_table: trades
+    right_table: counterparties
+    relationship_columns: [{left_column: counterparty_id, right_column: counterparty_id}]
+    join_type: inner
+    relationship_type: many_to_one
+  - name: trades_to_securities
+    left_table: trades
+    right_table: securities
+    relationship_columns: [{left_column: security_id, right_column: security_id}]
+    join_type: inner
+    relationship_type: many_to_one
+  - name: positions_to_accounts
+    left_table: positions
+    right_table: accounts
+    relationship_columns: [{left_column: account_id, right_column: account_id}]
+    join_type: inner
+    relationship_type: many_to_one
+  - name: positions_to_securities
+    left_table: positions
+    right_table: securities
+    relationship_columns: [{left_column: security_id, right_column: security_id}]
+    join_type: inner
+    relationship_type: many_to_one
+  - name: breaks_to_accounts
+    left_table: breaks
+    right_table: accounts
+    relationship_columns: [{left_column: account_id, right_column: account_id}]
+    join_type: inner
+    relationship_type: many_to_one
+  - name: breaks_to_securities
+    left_table: breaks
+    right_table: securities
+    relationship_columns: [{left_column: security_id, right_column: security_id}]
+    join_type: left_outer
+    relationship_type: many_to_one
+
+verified_queries:
+  - name: failed_large_trades_this_week_by_counterparty
+    question: Which trades over $1M failed to settle this week, by counterparty?
+    sql: |
+      SELECT c.counterparty_name, COUNT(*) AS failed_trades, SUM(t.notional_usd) AS failed_notional_usd
+      FROM __trades AS t
+      JOIN __settlements AS s ON s.trade_id = t.trade_id
+      JOIN __counterparties AS c ON c.counterparty_id = t.counterparty_id
+      WHERE s.settlement_status = 'FAILED' AND t.notional_usd > 1000000
+        AND s.expected_settle_date BETWEEN '2026-11-16' AND '2026-11-20'
+      GROUP BY c.counterparty_name
+      ORDER BY failed_notional_usd DESC
+    verified_at: 1763942400
+    verified_by: Rahul Reddy Chidipudi
+    use_as_onboarding_question: true
+  - name: traded_vs_settled_by_account
+    question: Traded vs settled market value by account
+    sql: |
+      SELECT a.account_name, SUM(p.market_value_usd) AS traded_mv_usd,
+             SUM(p.settled_market_value_usd) AS settled_mv_usd
+      FROM __positions AS p
+      JOIN __accounts AS a ON a.account_id = p.account_id
+      WHERE p.as_of_date = '2026-11-20'
+      GROUP BY a.account_name
+      ORDER BY traded_mv_usd DESC
+    verified_at: 1763942400
+    verified_by: Rahul Reddy Chidipudi
+    use_as_onboarding_question: true
+  - name: open_breaks_by_owner
+    question: Open breaks by owner team
+    sql: |
+      SELECT b.owner_team, COUNT(*) AS open_breaks, SUM(b.amount_usd) AS open_amount_usd
+      FROM __breaks AS b
+      WHERE b.break_status IN ('OPEN', 'INVESTIGATING')
+      GROUP BY b.owner_team
+      ORDER BY open_breaks DESC
+    verified_at: 1763942400
+    verified_by: Rahul Reddy Chidipudi
+    use_as_onboarding_question: true
+  - name: pending_settlement_count
+    question: How many trades are pending settlement?
+    sql: |
+      SELECT COUNT(*) AS pending_trades FROM __settlements AS s WHERE s.settlement_status = 'PENDING'
+    verified_at: 1763942400
+    verified_by: Rahul Reddy Chidipudi
