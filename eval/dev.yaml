@@ -1,0 +1,134 @@
+# Dev set: what I iterated the local engine against. Kept separate from gold.yaml.
+
+- id: D01
+  question: How many trades failed this week?
+  sql: |
+    SELECT COUNT(*) FROM TRADE_OPS.CORE.FACT_SETTLEMENTS
+    WHERE settlement_status = 'FAILED' AND expected_settle_date BETWEEN '2026-11-16' AND '2026-11-20'
+
+- id: D02
+  question: Total notional by counterparty this week
+  sql: |
+    SELECT c.counterparty_name, SUM(t.notional_usd)
+    FROM TRADE_OPS.CORE.FACT_TRADES t JOIN TRADE_OPS.CORE.DIM_COUNTERPARTY c ON c.counterparty_id = t.counterparty_id
+    WHERE t.trade_date BETWEEN '2026-11-16' AND '2026-11-20' AND t.trade_status <> 'CANCELLED'
+    GROUP BY c.counterparty_name
+
+- id: D03
+  question: List pending trades over $2M
+  sql: |
+    SELECT t.trade_id
+    FROM TRADE_OPS.CORE.FACT_TRADES t JOIN TRADE_OPS.CORE.FACT_SETTLEMENTS s ON s.trade_id = t.trade_id
+    WHERE s.settlement_status = 'PENDING' AND t.notional_usd > 2000000
+
+- id: D04
+  question: Market value by desk
+  sql: |
+    SELECT a.desk, SUM(p.market_value_usd)
+    FROM TRADE_OPS.CORE.FACT_POSITIONS p JOIN TRADE_OPS.CORE.DIM_ACCOUNT a ON a.account_id = p.account_id
+    WHERE p.as_of_date = '2026-11-20' GROUP BY a.desk
+
+- id: D05
+  question: Open breaks by account
+  sql: |
+    SELECT a.account_name, COUNT(*)
+    FROM TRADE_OPS.CORE.FACT_BREAKS b JOIN TRADE_OPS.CORE.DIM_ACCOUNT a ON a.account_id = b.account_id
+    WHERE b.break_status IN ('OPEN', 'INVESTIGATING') GROUP BY a.account_name
+
+- id: D06
+  question: Top 3 traders by notional this month
+  sql: |
+    SELECT trader, SUM(notional_usd) AS n FROM TRADE_OPS.CORE.FACT_TRADES
+    WHERE trade_date BETWEEN '2026-11-01' AND '2026-11-20' AND trade_status <> 'CANCELLED'
+    GROUP BY trader ORDER BY n DESC LIMIT 3
+
+- id: D07
+  question: How many EUR trades today?
+  sql: |
+    SELECT COUNT(*) FROM TRADE_OPS.CORE.FACT_TRADES
+    WHERE trade_ccy = 'EUR' AND trade_date = '2026-11-20' AND trade_status <> 'CANCELLED'
+
+- id: D08
+  question: Failed trades by desk
+  sql: |
+    SELECT a.desk, COUNT(*)
+    FROM TRADE_OPS.CORE.FACT_TRADES t
+    JOIN TRADE_OPS.CORE.FACT_SETTLEMENTS s ON s.trade_id = t.trade_id
+    JOIN TRADE_OPS.CORE.DIM_ACCOUNT a ON a.account_id = t.account_id
+    WHERE s.settlement_status = 'FAILED' GROUP BY a.desk
+
+- id: D09
+  question: Average notional for ETF trades this month
+  sql: |
+    SELECT AVG(t.notional_usd)
+    FROM TRADE_OPS.CORE.FACT_TRADES t JOIN TRADE_OPS.CORE.DIM_SECURITY x ON x.security_id = t.security_id
+    WHERE x.asset_class = 'ETF' AND t.trade_date BETWEEN '2026-11-01' AND '2026-11-20'
+      AND t.trade_status <> 'CANCELLED'
+
+- id: D10
+  question: Breaks by status
+  sql: |
+    SELECT break_status, COUNT(*) FROM TRADE_OPS.CORE.FACT_BREAKS GROUP BY break_status
+
+- id: D11
+  question: Which securities have unsettled quantity?
+  sql: |
+    SELECT DISTINCT x.ticker
+    FROM TRADE_OPS.CORE.FACT_POSITIONS p JOIN TRADE_OPS.CORE.DIM_SECURITY x ON x.security_id = p.security_id
+    WHERE p.as_of_date = '2026-11-20' AND p.traded_quantity <> p.settled_quantity
+
+- id: D12
+  question: How many breaks were resolved last week?
+  sql: |
+    SELECT COUNT(*) FROM TRADE_OPS.CORE.FACT_BREAKS
+    WHERE break_status = 'RESOLVED' AND resolved_date BETWEEN '2026-11-09' AND '2026-11-13'
+
+- id: D13
+  question: Notional by side this week
+  sql: |
+    SELECT side, SUM(notional_usd) FROM TRADE_OPS.CORE.FACT_TRADES
+    WHERE trade_date BETWEEN '2026-11-16' AND '2026-11-20' AND trade_status <> 'CANCELLED' GROUP BY side
+
+- id: D14
+  question: What's the largest open break?
+  sql: |
+    SELECT break_id FROM TRADE_OPS.CORE.FACT_BREAKS
+    WHERE break_status IN ('OPEN', 'INVESTIGATING') ORDER BY amount_usd DESC LIMIT 1
+
+- id: D15
+  question: Show trades with Halden Securities today
+  sql: |
+    SELECT t.trade_id
+    FROM TRADE_OPS.CORE.FACT_TRADES t JOIN TRADE_OPS.CORE.DIM_COUNTERPARTY c ON c.counterparty_id = t.counterparty_id
+    WHERE c.counterparty_name = 'Halden Securities' AND t.trade_date = '2026-11-20' AND t.trade_status <> 'CANCELLED'
+
+- id: D16
+  question: Market value of corporate bonds
+  sql: |
+    SELECT SUM(p.market_value_usd)
+    FROM TRADE_OPS.CORE.FACT_POSITIONS p JOIN TRADE_OPS.CORE.DIM_SECURITY x ON x.security_id = p.security_id
+    WHERE x.asset_class = 'CORP_BOND' AND p.as_of_date = '2026-11-20'
+
+- id: D17
+  question: How many tier 2 counterparties are there?
+  sql: |
+    SELECT COUNT(*) FROM TRADE_OPS.CORE.DIM_COUNTERPARTY WHERE tier = 2
+
+- id: D18
+  question: Failed trades by fail reason
+  sql: |
+    SELECT fail_reason, COUNT(*) FROM TRADE_OPS.CORE.FACT_SETTLEMENTS
+    WHERE settlement_status = 'FAILED' GROUP BY fail_reason
+
+- id: D19
+  question: Open break amount by owner team
+  sql: |
+    SELECT owner_team, SUM(amount_usd) FROM TRADE_OPS.CORE.FACT_BREAKS
+    WHERE break_status IN ('OPEN', 'INVESTIGATING') GROUP BY owner_team
+
+- id: D20
+  question: Daily notional this week
+  sql: |
+    SELECT trade_date, SUM(notional_usd) FROM TRADE_OPS.CORE.FACT_TRADES
+    WHERE trade_date BETWEEN '2026-11-16' AND '2026-11-20' AND trade_status <> 'CANCELLED'
+    GROUP BY trade_date
